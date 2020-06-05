@@ -3,7 +3,7 @@ module Pieditor exposing (main)
 import Array2 exposing (Array2)
 
 import Browser
-import Html exposing (Html, input, div, text, table, tr, td)
+import Html exposing (Html, h2, input, div, text, table, tr, td, span, label)
 import Html.Attributes as HAttr
 import Html.Events as HEvent
 import Svg exposing (svg)
@@ -19,12 +19,14 @@ type alias Model =
   { color : Color
   , canvas : Array2 Color
   , codelSize : Int
+  , customColor : Bool
   }
 
 initialModel =
   { color = White
   , canvas = Array2.repeat 32 24 White
   , codelSize = 16
+  , customColor = False
   }
 
 type Color
@@ -43,8 +45,8 @@ lightnesses : List Lightness
 lightnesses =
   List.range 0 2
 
-colorToString : Color -> String
-colorToString color =
+colorCode : Color -> String
+colorCode color =
   case color of
     Chromatic 0 0 -> "#FFC0C0"
     Chromatic 0 1 -> "#FF0000"
@@ -68,6 +70,31 @@ colorToString color =
     White -> "#FFFFFF"
     _ -> "?"
 
+customColorCode : Color -> String
+customColorCode color =
+  case color of
+    Chromatic 0 0 -> "#FFA0A0"
+    Chromatic 0 1 -> "#FF0000"
+    Chromatic 0 2 -> "#C00000"
+    Chromatic 1 0 -> "#FFFFC0"
+    Chromatic 1 1 -> "#FFFF00"
+    Chromatic 1 2 -> "#C0C000"
+    Chromatic 2 0 -> "#A0FFA0"
+    Chromatic 2 1 -> "#00FF00"
+    Chromatic 2 2 -> "#00A000"
+    Chromatic 3 0 -> "#C0FFFF"
+    Chromatic 3 1 -> "#00FFFF"
+    Chromatic 3 2 -> "#00C0C0"
+    Chromatic 4 0 -> "#C0C0FF"
+    Chromatic 4 1 -> "#3030FF"
+    Chromatic 4 2 -> "#0000A0"
+    Chromatic 5 0 -> "#FFC0FF"
+    Chromatic 5 1 -> "#FF00FF"
+    Chromatic 5 2 -> "#C000C0"
+    Black -> "#222222"
+    White -> "#FFFFFF"
+    _ -> "?"
+
 
 
 -- UPDATE --
@@ -75,6 +102,7 @@ colorToString color =
 type Msg
   = SelectColor Color
   | Plot Int Int
+  | ToggleCustomColor
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -91,6 +119,9 @@ update msg model =
                 |> Array2.set x y model.color
           in
             { model | canvas = canvas }
+
+        ToggleCustomColor ->
+          { model | customColor = not model.customColor }
   in
     ( model_, Cmd.none )
 
@@ -110,7 +141,7 @@ paletteView : Model -> Html Msg
 paletteView model =
   div
   []
-  [ Html.h2 [] [ text <| "palette" ]
+  [ h2 [] [ text <| "palette" ]
   , table []
     [ tr [] (colorButtons 0 model)
     , tr [] (colorButtons 1 model)
@@ -119,6 +150,12 @@ paletteView model =
       [ colorTd Black model
       , colorTd White model
       ]
+    ]
+  , label []
+    [ input
+      [ HAttr.type_ "checkbox"
+      , HEvent.onClick ToggleCustomColor ] []
+    , span [] [ text "custom color" ]
     ]
   ]
 
@@ -133,7 +170,10 @@ colorTd color model =
   input
   [ HAttr.type_ <| "button"
   , HEvent.onClick <| SelectColor color
-  , HAttr.style "background-color" <| colorToString <| color
+  , HAttr.style "background-color" <|
+      if model.customColor
+      then customColorCode <| color
+      else colorCode <| color
   , HAttr.style "border-style" <|
       if color == model.color
       then "inset"
@@ -151,7 +191,7 @@ canvasView model =
     h = Array2.height model.canvas * size |> String.fromInt
   in
     div []
-    [ Html.h2 [] [ text <| "canvas" ]
+    [ h2 [] [ text <| "canvas" ]
     , svg
       [ SAttr.width w, SAttr.height h, SAttr.viewBox ("0 0 "++w++" "++h) ]
       (model.canvas
@@ -163,7 +203,10 @@ canvasView model =
           , SAttr.width    <| String.fromInt <| size
           , SAttr.height   <| String.fromInt <| size
           , SAttr.stroke   <| "#CCCCCC"
-          , SAttr.fill     <| colorToString <| c
+          , SAttr.fill     <|
+              if model.customColor
+              then customColorCode <| c
+              else colorCode       <| c
           , SEvent.onClick <| Plot x y
           ]
           []))
