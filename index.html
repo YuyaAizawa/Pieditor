@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="jp">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  <title>Pieditor</title>
+</head>
+<body>
+  <h1>Pieditor</h1>
+  <div id="elm-area"></div>
+  <p>code:<a href="https://github.com/YuyaAizawa/Pieditor">github.com/YuyaAizawa/Pieditor</a></p>
+  <script src="js/elm.js"></script>
+  <script>
+    const app = document.getElementById("elm-area")
+    Elm.Pieditor.init({ node: app });
+  </script>
+</body>
+</html>
