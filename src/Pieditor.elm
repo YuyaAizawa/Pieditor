@@ -1,39 +1,98 @@
 module Pieditor exposing (main)
 
+import Array2 exposing (Array2)
+
 import Browser
-import Html exposing (Html, button, div, text)
-import Html.Events exposing (onClick)
+import Html exposing (Html, input, div, text, table, tr, td)
+import Html.Attributes as HAttr
+import Html.Events as HEvent
+import Svg exposing (svg)
+import Svg.Attributes as SAttr
+import Svg.Events as SEvent
+
 
 
 
 -- MODEL --
 
 type alias Model =
-  { count : Int }
+  { color : Color
+  , canvas : Array2 Color
+  , codelSize : Int
+  }
 
 initialModel =
-  { count = 0 }
+  { color = White
+  , canvas = Array2.repeat 32 24 White
+  , codelSize = 16
+  }
+
+type Color
+  = Chromatic Hue Lightness
+  | Black
+  | White
+
+type alias Hue = Int
+type alias Lightness = Int
+
+hues : List Hue
+hues =
+  List.range 0 5
+
+lightnesses : List Lightness
+lightnesses =
+  List.range 0 2
+
+colorToString : Color -> String
+colorToString color =
+  case color of
+    Chromatic 0 0 -> "#FFC0C0"
+    Chromatic 0 1 -> "#FF0000"
+    Chromatic 0 2 -> "#C00000"
+    Chromatic 1 0 -> "#FFFFC0"
+    Chromatic 1 1 -> "#FFFF00"
+    Chromatic 1 2 -> "#C0C000"
+    Chromatic 2 0 -> "#C0FFC0"
+    Chromatic 2 1 -> "#00FF00"
+    Chromatic 2 2 -> "#00C000"
+    Chromatic 3 0 -> "#C0FFFF"
+    Chromatic 3 1 -> "#00FFFF"
+    Chromatic 3 2 -> "#00C0C0"
+    Chromatic 4 0 -> "#C0C0FF"
+    Chromatic 4 1 -> "#0000FF"
+    Chromatic 4 2 -> "#0000C0"
+    Chromatic 5 0 -> "#FFC0FF"
+    Chromatic 5 1 -> "#FF00FF"
+    Chromatic 5 2 -> "#C000C0"
+    Black -> "#000000"
+    White -> "#FFFFFF"
+    _ -> "?"
 
 
 
 -- UPDATE --
 
 type Msg
-  = Increment
-  | Decrement
+  = SelectColor Color
+  | Plot Int Int
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-  case msg of
-    Increment ->
-      ( { model | count = model.count + 1 }
-      , Cmd.none
-      )
+  let
+    model_ =
+      case msg of
+        SelectColor color ->
+          { model | color = color }
 
-    Decrement ->
-      ( { model | count = model.count - 1 }
-      , Cmd.none
-      )
+        Plot x y ->
+          let
+            canvas =
+              model.canvas
+                |> Array2.set x y model.color
+          in
+            { model | canvas = canvas }
+  in
+    ( model_, Cmd.none )
 
 
 
@@ -43,16 +102,72 @@ view : Model -> Html Msg
 view model =
   div
   []
-  [ button
-    [ onClick Increment ]
-    [ text "+1" ]
-  , div
-    []
-    [ text <| String.fromInt model.count ]
-  , button
-    [ onClick Decrement ]
-    [ text "-1" ]
+  [ paletteView model
+  , canvasView model
   ]
+
+paletteView : Model -> Html Msg
+paletteView model =
+  div
+  []
+  [ Html.h2 [] [ text <| "palette" ]
+  , table []
+    [ tr [] (colorButtons 0 model)
+    , tr [] (colorButtons 1 model)
+    , tr [] (colorButtons 2 model)
+    , tr []
+      [ colorTd Black model
+      , colorTd White model
+      ]
+    ]
+  ]
+
+colorButtons : Lightness -> Model -> List (Html Msg)
+colorButtons lightness model =
+  hues
+    |> List.map (\h ->
+        colorTd (Chromatic h lightness) model )
+
+colorTd : Color -> Model -> Html Msg
+colorTd color model =
+  input
+  [ HAttr.type_ <| "button"
+  , HEvent.onClick <| SelectColor color
+  , HAttr.style "background-color" <| colorToString <| color
+  , HAttr.style "border-style" <|
+      if color == model.color
+      then "inset"
+      else "outset"
+  ]
+  []
+    |> List.singleton
+    |> td []
+
+canvasView : Model -> Html Msg
+canvasView model =
+  let
+    size = model.codelSize
+    w = Array2.width  model.canvas * size |> String.fromInt
+    h = Array2.height model.canvas * size |> String.fromInt
+  in
+    div []
+    [ Html.h2 [] [ text <| "canvas" ]
+    , svg
+      [ SAttr.width w, SAttr.height h, SAttr.viewBox ("0 0 "++w++" "++h) ]
+      (model.canvas
+        |> Array2.toIndexedList
+        |> List.map (\( ( x, y ), c ) ->
+          Svg.rect
+          [ SAttr.x        <| String.fromInt <| x * size
+          , SAttr.y        <| String.fromInt <| y * size
+          , SAttr.width    <| String.fromInt <| size
+          , SAttr.height   <| String.fromInt <| size
+          , SAttr.stroke   <| "#CCCCCC"
+          , SAttr.fill     <| colorToString <| c
+          , SEvent.onClick <| Plot x y
+          ]
+          []))
+    ]
 
 
 
