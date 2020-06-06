@@ -9,14 +9,16 @@ module Array2 exposing
   , get
   , set
   , toList
-  , toIndexedList
+  , toListUsingIndex
   , toListByRow
   , map
   , indexedMap
   , fold
+  , connectedArea
   )
 
 import Array exposing (Array)
+import Set exposing (Set)
 
 type Array2 a = Array2 Int Int (Array a)
 
@@ -92,12 +94,13 @@ toList this =
     |> contents
     |> Array.toList
 
-toIndexedList : Array2 a -> List ( ( Int, Int ), a )
-toIndexedList (Array2 width_ _ contents_) =
+toListUsingIndex : (Int -> Int -> a -> b) ->Array2 a -> List b
+toListUsingIndex f (Array2 width_ height_ contents_) =
   contents_
     |> Array.toIndexedList
     |> List.map (\( i, a ) ->
-      ( (modBy width_ i, (//) i width_ ), a))
+      f (modBy width_ i) ((//) i width_) a
+    )
 
 toListByRow : Array2 a -> List (List a)
 toListByRow (Array2 width_ height_ contents_) =
@@ -123,3 +126,27 @@ fold fn acc this =
   this
     |> contents
     |> Array.foldl fn acc
+
+connectedArea : Int -> Int -> Array2 a -> Set ( Int, Int )
+connectedArea x y this =
+  let
+    target = this |> get x y
+
+    neighbors ( x_, y_ ) =
+      [ ( x_ + 1, y_ ), ( x_ - 1, y_ )
+      , ( x_, y_ + 1 ), ( x_, y_ - 1 )]
+
+    help : List ( Int, Int ) -> Set ( Int, Int ) -> Set ( Int, Int )
+    help candidates result =
+      case candidates of
+        [] ->
+          result
+
+        (( x_, y_ ) as hd) :: tl ->
+          if (Set.member hd result |> not) && get x_ y_ this == target
+          then help (neighbors hd ++ tl) (Set.insert hd result)
+          else help tl result
+  in
+    case target of
+      Nothing -> Set.empty
+      Just a -> help [ ( x, y ) ] Set.empty

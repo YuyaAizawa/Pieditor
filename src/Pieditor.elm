@@ -6,6 +6,7 @@ import Browser
 import Html exposing (Html, h2, input, div, text, table, tr, td, span, label)
 import Html.Attributes as HAttr
 import Html.Events as HEvent
+import Set
 import Svg exposing (svg)
 import Svg.Attributes as SAttr
 import Svg.Events as SEvent
@@ -16,18 +17,32 @@ import Svg.Events as SEvent
 -- MODEL --
 
 type alias Model =
-  { color : Color
+  { tool : Tool
+  , color : Color
   , canvas : Array2 Color
   , codelSize : Int
   , customColor : Bool
   }
 
 initialModel =
-  { color = White
+  { tool = Pencil
+  , color = White
   , canvas = Array2.repeat 32 24 White
   , codelSize = 16
   , customColor = False
   }
+
+
+type Tool
+  = Pencil
+  | Paint
+
+toolIcon : Tool -> String
+toolIcon tool =
+  case tool of
+    Pencil -> "pencil"
+    Paint  -> "paint"
+
 
 type Color
   = Chromatic Hue Lightness
@@ -100,7 +115,8 @@ customColorCode color =
 -- UPDATE --
 
 type Msg
-  = SelectColor Color
+  = ChangeTool Tool
+  | SelectColor Color
   | Plot Int Int
   | ToggleCustomColor
 
@@ -109,22 +125,45 @@ update msg model =
   let
     model_ =
       case msg of
+        ChangeTool tool ->
+          { model | tool = tool }
+
         SelectColor color ->
           { model | color = color }
 
         Plot x y ->
-          let
-            canvas =
-              model.canvas
-                |> Array2.set x y model.color
-          in
-            { model | canvas = canvas }
+          case model.tool of
+            Pencil ->
+              let
+                canvas =
+                  model.canvas
+                    |> Array2.set x y model.color
+              in
+                { model | canvas = canvas }
+
+            Paint ->
+              let
+                canvas =
+                  model.canvas
+                    |> paint x y model.color
+              in
+                { model | canvas = canvas }
 
         ToggleCustomColor ->
           { model | customColor = not model.customColor }
   in
     ( model_, Cmd.none )
 
+paint : Int -> Int -> Color -> Array2 Color -> Array2 Color
+paint x y color canvas =
+  let
+    area =
+      Array2.connectedArea x y canvas
+  in
+    Set.foldl
+    (\( x_, y_ ) -> Array2.set x_ y_ color)
+    canvas
+    area
 
 
 -- VIEW --
@@ -139,49 +178,74 @@ view model =
 
 paletteView : Model -> Html Msg
 paletteView model =
-  div
-  []
-  [ h2 [] [ text <| "palette" ]
-  , table []
-    [ tr [] (colorButtons 0 model)
-    , tr [] (colorButtons 1 model)
-    , tr [] (colorButtons 2 model)
-    , tr []
-      [ colorTd Black model
-      , colorTd White model
+  let
+    colorRow lightness =
+      hues
+        |> List.map (\h ->
+          colorGrid (Chromatic h lightness) model )
+  in
+    div
+    [ HAttr.id "palette" ]
+    [ h2 [] [ text <| "palette" ]
+    , [ colorRow 0
+      , colorRow 1
+      , colorRow 2
+      , [ colorGrid Black model
+        , colorGrid White model
+        , toolGrid Pencil model
+        , toolGrid Paint model
+        ]
+      ] |> grid 6 4
+    , label []
+      [ input
+        [ HAttr.type_ "checkbox"
+        , HEvent.onClick ToggleCustomColor ] []
+      , span [] [ text "custom color" ]
       ]
     ]
-  , label []
-    [ input
-      [ HAttr.type_ "checkbox"
-      , HEvent.onClick ToggleCustomColor ] []
-    , span [] [ text "custom color" ]
-    ]
-  ]
 
-colorButtons : Lightness -> Model -> List (Html Msg)
-colorButtons lightness model =
-  hues
-    |> List.map (\h ->
-        colorTd (Chromatic h lightness) model )
-
-colorTd : Color -> Model -> Html Msg
-colorTd color model =
+colorGrid : Color -> Model -> Html Msg
+colorGrid color model =
   input
   [ HAttr.type_ <| "button"
-  , HEvent.onClick <| SelectColor color
   , HAttr.style "background-color" <|
       if model.customColor
       then customColorCode <| color
       else colorCode <| color
+  , HEvent.onClick <| SelectColor color
   , HAttr.style "border-style" <|
       if color == model.color
       then "inset"
       else "outset"
-  ]
-  []
-    |> List.singleton
-    |> td []
+  ][]
+
+toolGrid : Tool -> Model -> Html Msg
+toolGrid tool model =
+  input
+  [ HAttr.type_ "button"
+  , HAttr.value <| toolIcon <| tool
+  , HEvent.onClick <| ChangeTool tool
+  , HAttr.class "lsf tool"
+  , HAttr.style "border-style" <|
+      if tool == model.tool
+      then "inset"
+      else "outset"
+  ][]
+
+grid : Int -> Int -> List (List (Html Msg)) -> Html Msg
+grid columns rows contents =
+  div
+  [ HAttr.class "grid" ]
+  (contents
+    |> List.indexedMap (\i row -> row
+      |> List.indexedMap (\j column ->
+        div
+        [ HAttr.style "grid-row"    <| String.fromInt <| i+1
+        , HAttr.style "grid-column" <| String.fromInt <| j+1
+        ]
+        [ column ]))
+    |> List.concat
+  )
 
 canvasView : Model -> Html Msg
 canvasView model =
@@ -190,13 +254,13 @@ canvasView model =
     w = Array2.width  model.canvas * size |> String.fromInt
     h = Array2.height model.canvas * size |> String.fromInt
   in
-    div []
+    div
+    [ HAttr.id "canvas" ]
     [ h2 [] [ text <| "canvas" ]
     , svg
       [ SAttr.width w, SAttr.height h, SAttr.viewBox ("0 0 "++w++" "++h) ]
       (model.canvas
-        |> Array2.toIndexedList
-        |> List.map (\( ( x, y ), c ) ->
+        |> Array2.toListUsingIndex (\x y c ->
           Svg.rect
           [ SAttr.x        <| String.fromInt <| x * size
           , SAttr.y        <| String.fromInt <| y * size

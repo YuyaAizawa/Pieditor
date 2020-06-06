@@ -1,0 +1,14 @@
+#palette .grid {
+  display: grid;
+  grid-auto-columns: 32px;
+  grid-auto-rows: 32px;
+}
+
+#palette input {
+  width: 32px;
+  height: 32px;
+}
+
+#palette .tool {
+  font-size: 24px;
+}
