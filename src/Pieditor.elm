@@ -3,11 +3,11 @@ module Pieditor exposing (main)
 import Array2 exposing (Array2)
 
 import Browser
-import Html exposing (Html, h2, input, div, text, table, tr, td, span, label)
+import Html exposing (Html, h2, input, div, text, table, tr, td, span, label, br)
 import Html.Attributes as HAttr
 import Html.Events as HEvent
 import Set
-import Svg exposing (svg)
+import Svg exposing (Svg, svg)
 import Svg.Attributes as SAttr
 import Svg.Events as SEvent
 
@@ -19,9 +19,10 @@ import Svg.Events as SEvent
 type alias Model =
   { tool : Tool
   , color : Color
-  , canvas : Array2 Color
+  , canvas : Canvas
   , codelSize : Int
   , customColor : Bool
+  , vm : Vm
   }
 
 initialModel =
@@ -30,7 +31,12 @@ initialModel =
   , canvas = Array2.repeat 32 24 White
   , codelSize = 16
   , customColor = False
+  , vm = initialVm
   }
+
+updateVm : (Vm -> Vm) -> Model -> Model
+updateVm updater model =
+  { model | vm = updater model.vm }
 
 
 type Tool
@@ -110,6 +116,46 @@ customColorCode color =
     White -> "#FFFFFF"
     _ -> "?"
 
+type alias Canvas = Array2 Color
+
+type alias Vm =
+  { pc : ( Int, Int )
+  , dp : Dp
+  , cc : Cc
+  , prevDp : Maybe Dp
+  }
+
+initialVm =
+  { pc = ( 0, 0 )
+  , dp = DpRight
+  , cc = CcLeft
+  , prevDp = Nothing
+  }
+
+type Dp
+  = DpRight
+  | DpDown
+  | DpLeft
+  | DpUp
+
+dpToString : Dp -> String
+dpToString dp =
+  case dp of
+    DpRight -> "Right"
+    DpDown  -> "Down"
+    DpLeft  -> "Left"
+    DpUp    -> "Up"
+
+type Cc
+  = CcLeft
+  | CcRight
+
+ccToString : Cc -> String
+ccToString cc =
+  case cc of
+    CcRight -> "Right"
+    CcLeft  -> "Left"
+
 
 
 -- UPDATE --
@@ -119,6 +165,8 @@ type Msg
   | SelectColor Color
   | Plot Int Int
   | ToggleCustomColor
+  | Step
+  | Reset
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -151,6 +199,30 @@ update msg model =
 
         ToggleCustomColor ->
           { model | customColor = not model.customColor }
+
+        Step ->
+          let
+            (( nextX, nextY ) as coord) =
+              model.vm
+                |> findsEdges model.canvas
+                |> furthestToTheCc model.vm
+                |> Maybe.withDefault ( 0, 0 )
+                |> travelsInToDp model
+
+            nextState =
+              case model.canvas |> Array2.get nextX nextY of
+                Nothing ->
+                  switchDirection model.vm
+                Just Black ->
+                  switchDirection model.vm
+
+                _ ->
+                  chgangePc coord model.vm
+          in
+            { model | vm = nextState }
+
+        Reset ->
+          { model | vm = initialVm }
   in
     ( model_, Cmd.none )
 
@@ -165,6 +237,94 @@ paint x y color canvas =
     canvas
     area
 
+findsEdges : Canvas -> Vm -> List ( Int, Int )
+findsEdges canvas vm =
+  let
+    ( x, y ) = vm.pc
+
+    order =
+      case vm.dp of
+        DpRight ->
+          \( x1, y1 ) ( x2, y2 ) -> compare x2 x1
+        DpDown ->
+          \( x1, y1 ) ( x2, y2 ) -> compare y2 y1
+        DpLeft ->
+          \( x1, y1 ) ( x2, y2 ) -> compare x1 x2
+        DpUp ->
+          \( x1, y1 ) ( x2, y2 ) -> compare y1 y2
+  in
+    canvas
+      |> Array2.connectedArea x y
+      |> Set.foldl
+        (\coord (tentative, list) ->
+          case list of
+            [] ->
+              ( coord, [ coord ] )
+
+            _ -> case order coord tentative of
+              LT -> ( coord, [ coord ] )
+              EQ -> ( coord, coord :: list )
+              GT -> ( tentative, list )
+        )
+        ( ( 0, 0 ), [] )
+      |> Tuple.second
+
+furthestToTheCc : Vm -> List ( Int, Int ) -> Maybe ( Int, Int )
+furthestToTheCc vm candidates =
+  case ( vm.dp, vm.cc ) of
+    ( DpRight, CcLeft  ) -> candidates |> minBy Tuple.second
+    ( DpLeft , CcRight ) -> candidates |> minBy Tuple.second
+    ( DpDown , CcLeft  ) -> candidates |> maxBy Tuple.first
+    ( DpUp   , CcRight ) -> candidates |> maxBy Tuple.first
+    ( DpRight, CcRight ) -> candidates |> maxBy Tuple.second
+    ( DpLeft , CcLeft  ) -> candidates |> maxBy Tuple.second
+    ( DpDown , CcRight ) -> candidates |> minBy Tuple.first
+    ( DpUp   , CcLeft  ) -> candidates |> minBy Tuple.first
+
+travelsInToDp : Model -> ( Int, Int ) -> ( Int, Int )
+travelsInToDp model ( x, y ) =
+  case model.vm.dp of
+    DpRight -> ( x + 1, y     )
+    DpDown  -> ( x    , y + 1 )
+    DpLeft  -> ( x - 1, y     )
+    DpUp    -> ( x    , y - 1 )
+
+switchDirection vm =
+  if vm.prevDp == Just vm.dp
+  then stepDp vm
+  else stepCc vm
+
+chgangePc coord vm =
+  { vm
+  | pc = coord
+  , prevDp = Nothing
+  }
+
+stepDp vm =
+  let
+    nextDp = case vm.dp of
+      DpRight -> DpDown
+      DpDown  -> DpLeft
+      DpLeft  -> DpUp
+      DpUp    -> DpRight
+  in
+    { vm
+    | dp = nextDp
+    , prevDp = Just vm.dp
+    }
+
+stepCc vm =
+  let
+    nextCc = case vm.cc of
+      CcLeft  -> CcRight
+      CcRight -> CcLeft
+  in
+    { vm
+    | cc = nextCc
+    , prevDp = Just vm.dp
+    }
+
+
 
 -- VIEW --
 
@@ -173,6 +333,7 @@ view model =
   div
   []
   [ paletteView model
+  , vmView model
   , canvasView model
   ]
 
@@ -232,6 +393,91 @@ toolGrid tool model =
       else "outset"
   ][]
 
+
+vmView : Model -> Html Msg
+vmView model =
+  div
+  [ HAttr.id "controler" ]
+  [ h2 [] [ text <| "controler" ]
+  , vmStateView model.vm
+  , input
+    [ HAttr.type_ "button"
+    , HEvent.onClick Step
+    , HAttr.value "step"
+    ][]
+  , input
+    [ HAttr.type_ "button"
+    , HEvent.onClick Reset
+    , HAttr.value "reset"
+    ][]
+  ]
+
+vmStateView : Vm -> Html msg
+vmStateView vm =
+  let
+
+    ( x, y ) = vm.pc
+
+    pcStr =
+      "pc: (" ++ String.fromInt x ++
+      ", " ++ String.fromInt y ++ ")"
+
+    dpStr =
+      "dp: " ++ dpToString vm.dp
+
+    ccStr =
+      "cc: " ++ ccToString vm.cc
+  in
+    div
+    []
+    [ text <| pcStr, br[][]
+    , text <| dpStr, br[][]
+    , text <| ccStr
+    ]
+
+
+canvasView : Model -> Html Msg
+canvasView model =
+  let
+    size = model.codelSize
+    w = Array2.width  model.canvas * size |> String.fromInt
+    h = Array2.height model.canvas * size |> String.fromInt
+  in
+    div
+    [ HAttr.id "canvas" ]
+    [ h2 [] [ text <| "canvas" ]
+    , svg
+      [ SAttr.width w, SAttr.height h, SAttr.viewBox ("0 0 "++w++" "++h) ]
+      ((model.canvas
+        |> Array2.toListUsingIndex (\x y c ->
+          Svg.rect
+          [ SAttr.x        <| String.fromInt <| x * size
+          , SAttr.y        <| String.fromInt <| y * size
+          , SAttr.width    <| String.fromInt <| size
+          , SAttr.height   <| String.fromInt <| size
+          , SAttr.stroke   <| "#CCCCCC"
+          , SAttr.fill     <|
+              if model.customColor
+              then customColorCode <| c
+              else colorCode       <| c
+          , SEvent.onClick <| Plot x y
+          ]
+          [])) ++ [ pcSvg size model.vm.pc ]
+      )
+    ]
+
+pcSvg : Int -> ( Int, Int ) -> Svg msg
+pcSvg size ( x, y ) =
+  Svg.rect
+    [ SAttr.x        <| String.fromInt <| x * size + (size // 3)
+    , SAttr.y        <| String.fromInt <| y * size + (size // 3)
+    , SAttr.width    <| String.fromInt <| size // 3
+    , SAttr.height   <| String.fromInt <| size // 3
+    , SAttr.stroke   <| "#CCCCCC"
+    , SAttr.fill     <| "none"
+    ][]
+
+
 grid : Int -> Int -> List (List (Html Msg)) -> Html Msg
 grid columns rows contents =
   div
@@ -246,35 +492,6 @@ grid columns rows contents =
         [ column ]))
     |> List.concat
   )
-
-canvasView : Model -> Html Msg
-canvasView model =
-  let
-    size = model.codelSize
-    w = Array2.width  model.canvas * size |> String.fromInt
-    h = Array2.height model.canvas * size |> String.fromInt
-  in
-    div
-    [ HAttr.id "canvas" ]
-    [ h2 [] [ text <| "canvas" ]
-    , svg
-      [ SAttr.width w, SAttr.height h, SAttr.viewBox ("0 0 "++w++" "++h) ]
-      (model.canvas
-        |> Array2.toListUsingIndex (\x y c ->
-          Svg.rect
-          [ SAttr.x        <| String.fromInt <| x * size
-          , SAttr.y        <| String.fromInt <| y * size
-          , SAttr.width    <| String.fromInt <| size
-          , SAttr.height   <| String.fromInt <| size
-          , SAttr.stroke   <| "#CCCCCC"
-          , SAttr.fill     <|
-              if model.customColor
-              then customColorCode <| c
-              else colorCode       <| c
-          , SEvent.onClick <| Plot x y
-          ]
-          []))
-    ]
 
 
 
@@ -295,3 +512,45 @@ main =
   , update = update
   , subscriptions = subscriptions
   }
+
+
+
+-- UTILITY --
+
+minBy : (a -> number) -> List a -> Maybe a
+minBy extractor target =
+  List.foldl
+  (\a mab ->
+    case mab of
+      Nothing ->
+        Just ( a, extractor a )
+
+      Just ( a_, b_ ) ->
+        let
+          b = extractor a
+        in
+          if b < b_
+          then Just ( a, b )
+          else mab)
+  Nothing
+  target
+    |> Maybe.map Tuple.first
+
+maxBy : (a -> number) -> List a -> Maybe a
+maxBy extractor target =
+  List.foldl
+  (\a mab ->
+    case mab of
+      Nothing ->
+        Just ( a, extractor a )
+
+      Just ( a_, b_ ) ->
+        let
+          b = extractor a
+        in
+          if b > b_
+          then Just ( a, b )
+          else mab)
+  Nothing
+  target
+    |> Maybe.map Tuple.first
