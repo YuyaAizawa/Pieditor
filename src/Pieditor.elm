@@ -118,6 +118,10 @@ customColorCode color =
 
 type alias Canvas = Array2 Color
 
+getColor : ( Int, Int ) -> Canvas -> Maybe Color
+getColor ( x, y ) canvas =
+  canvas |> Array2.get x y
+
 type alias Vm =
   { pc : ( Int, Int )
   , dp : Dp
@@ -202,22 +206,51 @@ update msg model =
 
         Step ->
           let
-            (( nextX, nextY ) as coord) =
+            canvas =
+              model.canvas
+
+            vm =
               model.vm
-                |> findsEdges model.canvas
-                |> furthestToTheCc model.vm
-                |> Maybe.withDefault ( 0, 0 )
-                |> travelsInToDp model
+
+            currentColor =
+              getColor vm.pc canvas
 
             nextState =
-              case model.canvas |> Array2.get nextX nextY of
-                Nothing ->
-                  switchDirection model.vm
-                Just Black ->
-                  switchDirection model.vm
+              case currentColor of
+                Just White ->
+                  let
+                    end = straightToEnd vm canvas
+                    coord = end |> travelsInToDp vm.dp
+                  in
+                    case getColor coord canvas of
+                      Nothing ->
+                        vm
+                          |> chgangePc end
+                          |> switchDirectionWhiteCase
+                      Just Black ->
+                        vm
+                          |> chgangePc end
+                          |> switchDirectionWhiteCase
+
+                      _ ->
+                        chgangePc coord vm
 
                 _ ->
-                  chgangePc coord model.vm
+                  vm
+                    |> findsEdges canvas
+                    |> furthestToTheCc vm
+                    |> Maybe.withDefault ( 0, 0 )
+                    |> travelsInToDp vm.dp
+                    |> (\coord ->
+                      case getColor coord canvas of
+                        Nothing ->
+                          switchDirection vm
+                        Just Black ->
+                          switchDirection vm
+
+                        _ ->
+                          chgangePc coord vm
+                    )
           in
             { model | vm = nextState }
 
@@ -236,6 +269,25 @@ paint x y color canvas =
     (\( x_, y_ ) -> Array2.set x_ y_ color)
     canvas
     area
+
+straightToEnd : Vm -> Canvas -> ( Int, Int )
+straightToEnd vm canvas =
+  let
+    help : ( Int, Int ) -> ( Int, Int )
+    help coord =
+      let
+        next  = travelsInToDp vm.dp coord
+        color = getColor next canvas
+      in
+        case color of
+          Just White -> help next
+          _          -> coord
+  in
+    help vm.pc
+
+switchDirectionWhiteCase : Vm -> Vm
+switchDirectionWhiteCase =
+  stepCc >> stepDp
 
 findsEdges : Canvas -> Vm -> List ( Int, Int )
 findsEdges canvas vm =
@@ -281,14 +333,15 @@ furthestToTheCc vm candidates =
     ( DpDown , CcRight ) -> candidates |> minBy Tuple.first
     ( DpUp   , CcLeft  ) -> candidates |> minBy Tuple.first
 
-travelsInToDp : Model -> ( Int, Int ) -> ( Int, Int )
-travelsInToDp model ( x, y ) =
-  case model.vm.dp of
+travelsInToDp : Dp -> ( Int, Int ) -> ( Int, Int )
+travelsInToDp dp ( x, y ) =
+  case dp of
     DpRight -> ( x + 1, y     )
     DpDown  -> ( x    , y + 1 )
     DpLeft  -> ( x - 1, y     )
     DpUp    -> ( x    , y - 1 )
 
+switchDirection : Vm -> Vm
 switchDirection vm =
   if vm.prevDp == Just vm.dp
   then stepDp vm
