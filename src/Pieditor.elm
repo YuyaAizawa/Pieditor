@@ -3,14 +3,13 @@ module Pieditor exposing (main)
 import Array2 exposing (Array2)
 
 import Browser
-import Html exposing (Html, h2, input, div, text, table, tr, td, span, label, br)
+import Html exposing (Html, h2, input, div, text, table, tr, td, span, label, br, ul, li)
 import Html.Attributes as HAttr
 import Html.Events as HEvent
 import Set
 import Svg exposing (Svg, svg)
 import Svg.Attributes as SAttr
 import Svg.Events as SEvent
-
 
 
 
@@ -26,13 +25,16 @@ type alias Model =
   }
 
 initialModel =
-  { tool = Pencil
-  , color = White
-  , canvas = Array2.repeat 32 24 White
-  , codelSize = 16
-  , customColor = False
-  , vm = initialVm
-  }
+  let
+    canvas = Array2.repeat 32 24 White
+  in
+    { tool = Pencil
+    , color = White
+    , canvas = canvas
+    , codelSize = 16
+    , customColor = False
+    , vm = initialVm |> updateColor canvas
+    }
 
 updateVm : (Vm -> Vm) -> Model -> Model
 updateVm updater model =
@@ -127,6 +129,9 @@ type alias Vm =
   , dp : Dp
   , cc : Cc
   , prevDp : Maybe Dp
+  , color : Color
+  , prevColor : Color
+  , ir : Ir
   }
 
 initialVm =
@@ -134,6 +139,9 @@ initialVm =
   , dp = DpRight
   , cc = CcLeft
   , prevDp = Nothing
+  , color = White
+  , prevColor = White
+  , ir = Nop
   }
 
 type Dp
@@ -159,6 +167,61 @@ ccToString cc =
   case cc of
     CcRight -> "Right"
     CcLeft  -> "Left"
+
+type Ir
+  = Nop | Psh | Pop
+  | Add | Sub | Mul
+  | Div | Mod | Not
+  | Grt | Ptr | Swt
+  | Dup | Rll | Inu
+  | Ich | Onu | Och
+
+decode : Color -> Color -> Ir
+decode prev next =
+  case ( prev, next ) of
+    ( Chromatic ph pl, Chromatic nh nl ) ->
+      case modBy 18 ((nl - pl)*6 + (nh - ph)) of
+        1  -> Psh
+        2  -> Pop
+        3  -> Add
+        4  -> Sub
+        5  -> Mul
+        6  -> Div
+        7  -> Mod
+        8  -> Not
+        9  -> Grt
+        10 -> Ptr
+        11 -> Swt
+        12 -> Dup
+        13 -> Rll
+        14 -> Inu
+        15 -> Ich
+        16 -> Onu
+        17 -> Och
+        _  -> Nop
+    _ -> Nop
+
+irToString : Ir -> String
+irToString ir =
+  case ir of
+    Nop -> "nop"
+    Psh -> "push"
+    Pop -> "pop"
+    Add -> "add"
+    Sub -> "subtract"
+    Mul -> "multiply"
+    Div -> "division"
+    Mod -> "mod"
+    Not -> "not"
+    Grt -> "greater"
+    Ptr -> "pointer"
+    Swt -> "switch"
+    Dup -> "duplicate"
+    Rll -> "roll"
+    Inu -> "in(number)"
+    Ich -> "in(char)"
+    Onu -> "out(number)"
+    Och -> "out(char)"
 
 
 
@@ -212,12 +275,9 @@ update msg model =
             vm =
               model.vm
 
-            currentColor =
-              getColor vm.pc canvas
-
-            nextState =
-              case currentColor of
-                Just White ->
+            moved =
+              case vm.color of
+                White ->
                   let
                     end = straightToEnd vm canvas
                     coord = end |> travelsInToDp vm.dp
@@ -251,11 +311,15 @@ update msg model =
                         _ ->
                           chgangePc coord vm
                     )
+
+            nextState =
+              moved
+                |> updateColor canvas
           in
             { model | vm = nextState }
 
         Reset ->
-          { model | vm = initialVm }
+          { model | vm = initialVm |> updateColor model.canvas }
   in
     ( model_, Cmd.none )
 
@@ -269,6 +333,26 @@ paint x y color canvas =
     (\( x_, y_ ) -> Array2.set x_ y_ color)
     canvas
     area
+
+updateColor : Canvas -> Vm -> Vm
+updateColor canvas vm =
+  let
+    color =
+      canvas
+        |> getColor vm.pc
+        |> Maybe.withDefault Black -- never happen
+
+    prevColor =
+      vm.color
+
+    ir =
+      decode prevColor color
+  in
+    { vm
+    | color = color
+    , prevColor = prevColor
+    , ir = ir
+    }
 
 straightToEnd : Vm -> Canvas -> ( Int, Int )
 straightToEnd vm canvas =
@@ -284,10 +368,6 @@ straightToEnd vm canvas =
           _          -> coord
   in
     help vm.pc
-
-switchDirectionWhiteCase : Vm -> Vm
-switchDirectionWhiteCase =
-  stepCc >> stepDp
 
 findsEdges : Canvas -> Vm -> List ( Int, Int )
 findsEdges canvas vm =
@@ -346,6 +426,10 @@ switchDirection vm =
   if vm.prevDp == Just vm.dp
   then stepDp vm
   else stepCc vm
+
+switchDirectionWhiteCase : Vm -> Vm
+switchDirectionWhiteCase =
+  stepCc >> stepDp
 
 chgangePc coord vm =
   { vm
@@ -468,25 +552,19 @@ vmView model =
 vmStateView : Vm -> Html msg
 vmStateView vm =
   let
-
     ( x, y ) = vm.pc
-
-    pcStr =
-      "pc: (" ++ String.fromInt x ++
-      ", " ++ String.fromInt y ++ ")"
-
-    dpStr =
-      "dp: " ++ dpToString vm.dp
-
-    ccStr =
-      "cc: " ++ ccToString vm.cc
   in
-    div
-    []
-    [ text <| pcStr, br[][]
-    , text <| dpStr, br[][]
-    , text <| ccStr
+    [ "pc: (" ++ String.fromInt x ++
+      ", " ++ String.fromInt y ++ ")"
+    , "ir: " ++ irToString vm.ir
+    , "dp: " ++ dpToString vm.dp
+    , "cc: " ++ ccToString vm.cc
     ]
+      |> List.map (
+          text
+          >> List.singleton
+          >> li [])
+      |> ul []
 
 
 canvasView : Model -> Html Msg
